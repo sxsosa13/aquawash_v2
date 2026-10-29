@@ -1,142 +1,121 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AquaWash · Lavadero de autos y motos</title>
-<style>
-  :root { --azul:#0b5ea8; --turq:#2a9d8f; --fondo:#f2f7fb; --texto:#1c2b39; --borde:#d3dfe9; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, "Segoe UI", Arial, sans-serif; background:var(--fondo); color:var(--texto); }
-  header { background:linear-gradient(135deg,var(--azul),var(--turq)); color:#fff; padding:48px 20px 64px; text-align:center; }
-  header h1 { margin:0 0 8px; font-size:2.2rem; }
-  header p { margin:0; opacity:.92; font-size:1.1rem; }
-  main { max-width:920px; margin:-36px auto 40px; padding:0 16px; display:grid; gap:20px; grid-template-columns:1fr 1.2fr; }
-  @media (max-width:780px){ main{ grid-template-columns:1fr; } }
-  section { background:#fff; border-radius:14px; padding:22px; box-shadow:0 4px 18px rgba(11,94,168,.10); }
-  h2 { margin-top:0; font-size:1.25rem; color:var(--azul); }
-  .servicio { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--borde); }
-  .servicio:last-child { border-bottom:0; }
-  .servicio small { color:#5b6b7a; display:block; }
-  .precio { font-weight:700; white-space:nowrap; }
-  label { display:block; font-size:.88rem; margin:12px 0 4px; font-weight:600; }
-  input, select, textarea { width:100%; padding:10px; border:1px solid var(--borde); border-radius:8px; font:inherit; background:#fff; color:inherit; }
-  .tipo { display:flex; gap:10px; }
-  .tipo button { flex:1; padding:10px; border:2px solid var(--borde); background:#fff; border-radius:8px; font:inherit; cursor:pointer; }
-  .tipo button.activo { border-color:var(--turq); background:#e6f5f3; font-weight:700; }
-  .fila { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .enviar { margin-top:18px; width:100%; padding:13px; border:0; border-radius:10px; background:var(--azul); color:#fff; font:inherit; font-weight:700; cursor:pointer; }
-  .enviar:disabled { opacity:.6; cursor:wait; }
-  #msg { margin-top:14px; padding:12px; border-radius:8px; display:none; }
-  #msg.ok { display:block; background:#e4f6ea; color:#17653a; }
-  #msg.error { display:block; background:#fdeaea; color:#9b1c1c; }
-  footer { text-align:center; padding:20px; color:#5b6b7a; font-size:.85rem; }
-</style>
-</head>
-<body>
-<header>
-  <h1>AquaWash</h1>
-  <p>Lavadero de autos y motos · Reserve su turno en línea</p>
-</header>
+import csv
+import tkinter as tk
+from datetime import date
+from tkinter import ttk, messagebox, filedialog
 
-<main>
-  <section>
-    <h2>Nuestros servicios</h2>
-    <div id="lista">Cargando servicios…</div>
-  </section>
+from config import MONEDA
+from database import db
+from ui.utils import tabla, llenar
 
-  <section>
-    <h2>Reservar turno</h2>
-    <form id="form" novalidate>
-      <label>Tipo de vehículo</label>
-      <div class="tipo">
-        <button type="button" data-tipo="AUTO" class="activo">🚗 Auto</button>
-        <button type="button" data-tipo="MOTO">🏍️ Moto</button>
-      </div>
 
-      <label for="servicio">Servicio</label>
-      <select id="servicio"></select>
+class ReportesTab(ttk.Frame):
+    def __init__(self, master):
+        super().__init__(master, padding=10)
+        hoy = date.today()
+        self.desde = tk.StringVar(value=hoy.replace(day=1).isoformat())
+        self.hasta = tk.StringVar(value=hoy.isoformat())
+        self.ingresos = []
+        self.egresos = []
+        self.stock = []
+        self.balance = {"ingresos": 0, "egresos": 0, "balance": 0}
 
-      <div class="fila">
-        <div><label for="fecha">Fecha</label><input type="date" id="fecha"></div>
-        <div><label for="hora">Hora disponible</label><select id="hora"></select></div>
-      </div>
+        f = ttk.Frame(self)
+        f.pack(fill="x")
+        ttk.Label(f, text="Desde").pack(side="left")
+        ttk.Entry(f, textvariable=self.desde, width=12).pack(side="left", padx=4)
+        ttk.Label(f, text="Hasta").pack(side="left")
+        ttk.Entry(f, textvariable=self.hasta, width=12).pack(side="left", padx=4)
+        ttk.Button(f, text="Generar", command=self.generar).pack(side="left", padx=6)
+        ttk.Button(f, text="Exportar CSV", command=self.exportar).pack(side="left")
+        self.lbl = ttk.Label(f, text="", font=("Segoe UI", 11, "bold"))
+        self.lbl.pack(side="right")
 
-      <label for="nombre">Nombre completo</label>
-      <input id="nombre" autocomplete="name">
-      <div class="fila">
-        <div><label for="telefono">Teléfono</label><input id="telefono" type="tel" autocomplete="tel"></div>
-        <div><label for="placa">Placa</label><input id="placa" maxlength="12"></div>
-      </div>
-      <label for="email">Email (opcional)</label>
-      <input id="email" type="email" autocomplete="email">
-      <label for="obs">Observaciones (opcional)</label>
-      <textarea id="obs" rows="2"></textarea>
+        cuerpo = ttk.Frame(self)
+        cuerpo.pack(fill="both", expand=True, pady=10)
 
-      <button class="enviar" id="enviar" type="submit">Reservar</button>
-      <div id="msg" role="status"></div>
-    </form>
-  </section>
-</main>
-<footer>AquaWash · Proyecto universitario</footer>
+        resumen = ttk.LabelFrame(cuerpo, text="Resumen económico", padding=8)
+        resumen.pack(fill="x")
+        self.resumen_var = tk.StringVar(value="")
+        ttk.Label(resumen, textvariable=self.resumen_var, font=("Segoe UI", 11, "bold")).pack(anchor="w")
 
-<script>
-  let servicios = [], tipo = "AUTO";
-  const $ = id => document.getElementById(id);
-  const hoy = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  $("fecha").min = $("fecha").value = hoy;
+        top = ttk.Frame(cuerpo)
+        top.pack(fill="both", expand=True, pady=(10, 0))
+        izq = ttk.LabelFrame(top, text="Ingresos por día", padding=6)
+        izq.pack(side="left", fill="both", expand=True)
+        marco, self.tv_ing = tabla(izq, [("dia", "Día", 120), ("total", f"Total ({MONEDA})", 130)], alto=10)
+        marco.pack(fill="both", expand=True)
 
-  function mostrar(texto, clase) { const m = $("msg"); m.textContent = texto; m.className = clase; }
+        der = ttk.LabelFrame(top, text="Servicios más solicitados", padding=6)
+        der.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        self.canvas = tk.Canvas(der, width=380, height=260, bg="white", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
 
-  async function cargarServicios() {
-    try {
-      servicios = await (await fetch("/api/servicios")).json();
-      $("lista").innerHTML = servicios.map(s =>
-        `<div class="servicio"><div>${s.nombre}<small>${s.tipo_vehiculo === "AUTO" ? "Auto" : "Moto"} · ${s.duracion_min} min</small></div>` +
-        `<div class="precio">$${Number(s.precio).toFixed(2)}</div></div>`).join("");
-      filtrar();
-    } catch { $("lista").textContent = "No se pudieron cargar los servicios."; }
-  }
+        bajo = ttk.LabelFrame(cuerpo, text="Insumos con stock bajo", padding=6)
+        bajo.pack(fill="x", pady=(10, 0))
+        marco2, self.tv_stock = tabla(bajo, [("nombre", "Insumo", 220), ("categoria", "Categoría", 140),
+                                            ("cantidad", "Stock", 100), ("minimo", "Mínimo", 100)], alto=6)
+        marco2.pack(fill="both", expand=True)
 
-  function filtrar() {
-    $("servicio").innerHTML = servicios.filter(s => s.tipo_vehiculo === tipo)
-      .map(s => `<option value="${s.id}">${s.nombre} — $${Number(s.precio).toFixed(2)}</option>`).join("");
-  }
+        fin = ttk.Frame(cuerpo)
+        fin.pack(fill="both", expand=True, pady=(10, 0))
+        eg = ttk.LabelFrame(fin, text="Egresos por día", padding=6)
+        eg.pack(side="left", fill="both", expand=True)
+        marco3, self.tv_eg = tabla(eg, [("dia", "Día", 120), ("total", f"Total ({MONEDA})", 130)], alto=8)
+        marco3.pack(fill="both", expand=True)
 
-  async function cargarHoras() {
-    const f = $("fecha").value;
-    if (!f) { $("hora").innerHTML = ""; return; }
-    const horas = await (await fetch("/api/horarios?fecha=" + f)).json();
-    $("hora").innerHTML = Array.isArray(horas) && horas.length
-      ? horas.map(h => `<option>${h}</option>`).join("")
-      : "<option value=''>Sin horarios</option>";
-  }
+        bal = ttk.LabelFrame(fin, text="Balance económico", padding=6)
+        bal.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        self.balance_var = tk.StringVar(value="")
+        ttk.Label(bal, textvariable=self.balance_var, justify="left", font=("Segoe UI", 11)).pack(anchor="w", padx=8, pady=12)
 
-  document.querySelectorAll(".tipo button").forEach(b => b.onclick = () => {
-    tipo = b.dataset.tipo;
-    document.querySelectorAll(".tipo button").forEach(x => x.classList.toggle("activo", x === b));
-    filtrar();
-  });
-  $("fecha").onchange = cargarHoras;
+        self.generar()
 
-  $("form").onsubmit = async e => {
-    e.preventDefault();
-    const datos = { tipo, servicio_id: $("servicio").value, fecha: $("fecha").value, hora: $("hora").value,
-      nombre: $("nombre").value, telefono: $("telefono").value, placa: $("placa").value,
-      email: $("email").value, observacion: $("obs").value };
-    $("enviar").disabled = true;
-    try {
-      const r = await fetch("/api/reservas", { method: "POST", body: JSON.stringify(datos) });
-      const j = await r.json();
-      if (j.ok) { mostrar(`¡Reserva confirmada! Su número de turno es #${j.cita}.`, "ok"); $("form").reset(); $("fecha").value = hoy; }
-      else mostrar(j.error, "error");
-    } catch { mostrar("No se pudo conectar con el servidor.", "error"); }
-    $("enviar").disabled = false;
-    cargarHoras();
-  };
+    def generar(self):
+        try:
+            d, h = date.fromisoformat(self.desde.get()), date.fromisoformat(self.hasta.get())
+        except ValueError:
+            return messagebox.showwarning("Fechas inválidas", "Use el formato AAAA-MM-DD.")
 
-  cargarServicios();
-  cargarHoras();
-</script>
-</body>
-</html>
+        self.ingresos = db.ingresos_por_dia(d, h)
+        self.egresos = db.egresos_por_dia(d, h)
+        self.stock = db.insumos_bajo_stock()
+        self.balance = db.balance_economico(d, h)
+
+        llenar(self.tv_ing, [(i, (r["dia"].isoformat(), f"{r['total']:,.0f}")) for i, r in enumerate(self.ingresos)])
+        llenar(self.tv_eg, [(i, (r["dia"].isoformat(), f"{r['total']:,.0f}")) for i, r in enumerate(self.egresos)])
+        llenar(self.tv_stock, [(r["id"], (r["nombre"], r["categoria"], f"{r['cantidad']:,.2f}", f"{r['stock_minimo']:,.2f}")) for r in self.stock])
+
+        total_ingreso = sum(r["total"] for r in self.ingresos)
+        total_egreso = sum(r["total"] for r in self.egresos)
+        self.lbl.config(text=f"Total período: {MONEDA}{total_ingreso:,.0f} ingresos · {MONEDA}{total_egreso:,.0f} egresos")
+        self.resumen_var.set(f"Ingresos: {MONEDA}{self.balance['ingresos']:,.0f} | Egresos: {MONEDA}{self.balance['egresos']:,.0f} | Balance: {MONEDA}{self.balance['balance']:,.0f}")
+        self.balance_var.set(f"Ingresos: {MONEDA}{self.balance['ingresos']:,.0f}\nEgresos: {MONEDA}{self.balance['egresos']:,.0f}\nBalance neto: {MONEDA}{self.balance['balance']:,.0f}")
+        self.graficar(db.servicios_top(d, h))
+
+    def graficar(self, datos):
+        c = self.canvas
+        c.delete("all")
+        if not datos:
+            c.create_text(190, 120, text="Sin datos en el período", fill="#777")
+            return
+        maximo = max(r["cantidad"] for r in datos)
+        for i, r in enumerate(datos[:8]):
+            y = 14 + i * 30
+            c.create_text(4, y + 11, anchor="w", text=r["nombre"][:24], font=("Segoe UI", 9))
+            ancho = int(180 * r["cantidad"] / maximo)
+            c.create_rectangle(190, y, 190 + ancho, y + 20, fill="#0a66c2", outline="")
+            c.create_text(196 + ancho, y + 10, anchor="w", text=str(r["cantidad"]), font=("Segoe UI", 9, "bold"))
+
+    def exportar(self):
+        if not self.ingresos and not self.egresos:
+            return messagebox.showinfo("Sin datos", "Genere primero un reporte con datos.")
+        ruta = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")], initialfile="sosa_car_wash_reporte.csv")
+        if ruta:
+            with open(ruta, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.writer(f)
+                w.writerow(["tipo", "fecha", "total"])
+                for r in self.ingresos:
+                    w.writerow(["ingreso", r["dia"].isoformat(), r["total"]])
+                for r in self.egresos:
+                    w.writerow(["egreso", r["dia"].isoformat(), r["total"]])
+            messagebox.showinfo("Exportado", f"Archivo guardado en:\n{ruta}")

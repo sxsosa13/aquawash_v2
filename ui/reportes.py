@@ -1,79 +1,78 @@
-import csv
 import tkinter as tk
-from datetime import date
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 
 from config import MONEDA
 from database import db
-from ui.utils import tabla, llenar
+from ui.utils import tabla, llenar, seleccionado
 
 
-class ReportesTab(ttk.Frame):
-    """Ingresos por día, servicios más solicitados y exportación a CSV (solo ADMIN)."""
-
+class ServiciosTab(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=10)
-        hoy = date.today()
-        self.desde = tk.StringVar(value=hoy.replace(day=1).isoformat())
-        self.hasta = tk.StringVar(value=hoy.isoformat())
-        self.ingresos = []
-
-        f = ttk.Frame(self)
+        self.sid = None
+        self.v = {"nombre": tk.StringVar(), "tipo": tk.StringVar(value="AUTO"),
+                  "precio": tk.StringVar(), "duracion": tk.StringVar(value="60")}
+        f = ttk.LabelFrame(self, text="Servicio", padding=8)
         f.pack(fill="x")
-        ttk.Label(f, text="Desde").pack(side="left")
-        ttk.Entry(f, textvariable=self.desde, width=12).pack(side="left", padx=4)
-        ttk.Label(f, text="Hasta").pack(side="left")
-        ttk.Entry(f, textvariable=self.hasta, width=12).pack(side="left", padx=4)
-        ttk.Button(f, text="Generar", command=self.generar).pack(side="left", padx=6)
-        ttk.Button(f, text="Exportar CSV", command=self.exportar).pack(side="left")
-        self.lbl = ttk.Label(f, text="", font=("Segoe UI", 11, "bold"))
-        self.lbl.pack(side="right")
+        campos = [("Nombre", "nombre", 28), ("Precio", "precio", 10), ("Minutos", "duracion", 6)]
+        ttk.Label(f, text="Vehículo").pack(side="left")
+        ttk.Combobox(f, textvariable=self.v["tipo"], values=["AUTO", "MOTO"], width=7,
+                     state="readonly").pack(side="left", padx=4)
+        for txt, k, w in campos:
+            ttk.Label(f, text=txt).pack(side="left", padx=(8, 0))
+            ttk.Entry(f, textvariable=self.v[k], width=w).pack(side="left", padx=4)
+        ttk.Button(f, text="Guardar", command=self.guardar).pack(side="left", padx=4)
+        ttk.Button(f, text="Nuevo", command=self.nuevo).pack(side="left")
+        ttk.Button(f, text="Activar / desactivar", command=self.alternar).pack(side="left", padx=4)
 
-        cuerpo = ttk.Frame(self)
-        cuerpo.pack(fill="both", expand=True, pady=10)
-        izq = ttk.LabelFrame(cuerpo, text="Ingresos por día", padding=6)
-        izq.pack(side="left", fill="both", expand=True)
-        marco, self.tv = tabla(izq, [("dia", "Día", 120), ("total", f"Total ({MONEDA})", 130)], alto=14)
-        marco.pack(fill="both", expand=True)
-        der = ttk.LabelFrame(cuerpo, text="Servicios más solicitados", padding=6)
-        der.pack(side="left", fill="both", expand=True, padx=(10, 0))
-        self.canvas = tk.Canvas(der, width=380, height=300, bg="white", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-        self.generar()
+        marco, self.tv = tabla(self, [("nombre", "Servicio", 280), ("tipo", "Vehículo", 90),
+                                      ("precio", f"Precio ({MONEDA})", 110), ("min", "Minutos", 80),
+                                      ("activo", "Activo", 80)], alto=14)
+        marco.pack(fill="both", expand=True, pady=8)
+        self.tv.bind("<<TreeviewSelect>>", self.al_seleccionar)
+        self.cargar()
 
-    def generar(self):
-        try:
-            d, h = date.fromisoformat(self.desde.get()), date.fromisoformat(self.hasta.get())
-        except ValueError:
-            return messagebox.showwarning("Fechas inválidas", "Use el formato AAAA-MM-DD.")
-        self.ingresos = db.ingresos_por_dia(d, h)
-        llenar(self.tv, [(i, (r["dia"].isoformat(), f"{r['total']:,.2f}")) for i, r in enumerate(self.ingresos)])
-        total = sum(r["total"] for r in self.ingresos)
-        self.lbl.config(text=f"Total del período: {MONEDA}{total:,.2f}")
-        self.graficar(db.servicios_top(d, h))
+    def cargar(self):
+        filas = db.consultar("SELECT * FROM servicios ORDER BY tipo_vehiculo, precio")
+        llenar(self.tv, [(r["id"], (r["nombre"], r["tipo_vehiculo"], f"{r['precio']:,.0f}",
+                                     r["duracion_min"], "Sí" if r["activo"] else "No")) for r in filas])
 
-    def graficar(self, datos):
-        c = self.canvas
-        c.delete("all")
-        if not datos:
-            c.create_text(190, 120, text="Sin datos en el período", fill="#777")
+    def nuevo(self):
+        self.sid = None
+        self.v["nombre"].set("")
+        self.v["precio"].set("")
+        self.v["duracion"].set("60")
+        self.tv.selection_remove(self.tv.selection())
+
+    def al_seleccionar(self, _e=None):
+        sid = seleccionado(self.tv)
+        if sid is None:
             return
-        maximo = max(r["cantidad"] for r in datos)
-        for i, r in enumerate(datos[:8]):
-            y = 14 + i * 34
-            c.create_text(4, y + 11, anchor="w", text=r["nombre"][:24], font=("Segoe UI", 9))
-            ancho = int(150 * r["cantidad"] / maximo)
-            c.create_rectangle(190, y, 190 + ancho, y + 22, fill="#2a9d8f", outline="")
-            c.create_text(196 + ancho, y + 11, anchor="w", text=str(r["cantidad"]), font=("Segoe UI", 9, "bold"))
+        self.sid = sid
+        r = db.consultar("SELECT * FROM servicios WHERE id = %s", (sid,))[0]
+        self.v["nombre"].set(r["nombre"])
+        self.v["tipo"].set(r["tipo_vehiculo"])
+        self.v["precio"].set(str(r["precio"]))
+        self.v["duracion"].set(str(r["duracion_min"]))
 
-    def exportar(self):
-        if not self.ingresos:
-            return messagebox.showinfo("Sin datos", "Genere primero un reporte con datos.")
-        ruta = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")],
-                                            initialfile="ingresos.csv")
-        if ruta:
-            with open(ruta, "w", newline="", encoding="utf-8-sig") as f:
-                w = csv.writer(f)
-                w.writerow(["dia", "total"])
-                w.writerows([[r["dia"].isoformat(), r["total"]] for r in self.ingresos])
-            messagebox.showinfo("Exportado", f"Archivo guardado en:\n{ruta}")
+    def guardar(self):
+        try:
+            nombre = self.v["nombre"].get().strip()
+            precio = float(self.v["precio"].get().replace(",", "."))
+            minutos = int(self.v["duracion"].get())
+            if not nombre or precio < 0 or minutos <= 0:
+                raise ValueError
+        except ValueError:
+            return messagebox.showwarning("Datos inválidos", "Revise nombre, precio (número) y minutos (entero).")
+        datos = (nombre, self.v["tipo"].get(), precio, minutos)
+        if self.sid:
+            db.ejecutar("UPDATE servicios SET nombre=%s, tipo_vehiculo=%s, precio=%s, duracion_min=%s WHERE id=%s", datos + (self.sid,))
+        else:
+            db.ejecutar("INSERT INTO servicios (nombre, tipo_vehiculo, precio, duracion_min) VALUES (%s, %s, %s, %s)", datos)
+        self.nuevo()
+        self.cargar()
+
+    def alternar(self):
+        if self.sid:
+            db.ejecutar("UPDATE servicios SET activo = NOT activo WHERE id = %s", (self.sid,))
+            self.cargar()
