@@ -1,79 +1,84 @@
-# AquaWash · Gestión de lavadero de autos y motos
+"""Servidor web de Sosa Car Wash: sirve la página principal y una API JSON básica."""
+import json
+import os
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
-Python 3 · Tkinter · PostgreSQL · Página web de reservas · Todo administrable desde Visual Studio Code
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import WEB_PORT
+from database import db
 
-## 1. Requisitos (instalar una sola vez)
-1. **Python 3.10+** (marque *Add Python to PATH*). En Linux: `sudo apt install python3-tk`.
-2. **PostgreSQL 9.3 o superior** (el servidor de base de datos). Anote la contraseña del usuario `postgres`.
-   *Alternativa sin instalar:* con Docker, `docker compose up -d` (contraseña: `postgres`).
-3. **Visual Studio Code** (https://code.visualstudio.com).
+RAIZ = os.path.dirname(os.path.abspath(__file__))
 
-## 2. Abrir el proyecto
-1. Descomprima `aquawash.zip`.
-2. En VS Code: **Archivo > Abrir carpeta…** y elija la carpeta `aquawash`
-   (o abra el archivo `aquawash.code-workspace`).
-3. Acepte la sugerencia **«Instalar extensiones recomendadas»**: *Python*, *SQLTools* y *SQLTools PostgreSQL Driver*.
 
-## 3. Preparar el entorno (terminal de VS Code: Ctrl+ñ)
-```
-python -m venv venv
-venv\Scripts\activate            # Linux/macOS: source venv/bin/activate
-pip install -r requirements.txt
-```
-Si VS Code pregunta por el intérprete, elija el de `venv`.
+class Handler(BaseHTTPRequestHandler):
+    def _responder(self, cuerpo, tipo, codigo=200):
+        self.send_response(codigo)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
 
-## 4. Crear la base de datos desde VS Code (sin pgAdmin)
-Pulse **F5** y elija **«AquaWash · 1) Configurar base de datos (primera vez)»**.
-El asistente, en la terminal de VS Code:
-1. Le pide servidor, puerto, usuario y **contraseña de PostgreSQL**.
-2. Prueba la conexión y le explica el error si falla.
-3. Crea la base `aquawash`, las 6 tablas, los usuarios y los servicios iniciales.
-4. Le ofrece cargar datos de ejemplo.
+    def _json(self, datos, codigo=200):
+        self._responder(json.dumps(datos, default=str).encode(), "application/json; charset=utf-8", codigo)
 
-La conexión queda guardada en `config_local.json` (no necesita editar `config.py`).
-Para cambiarla, vuelva a ejecutar el asistente.
+    def do_GET(self):
+        url = urlparse(self.path)
+        try:
+            if url.path in ("/", "/index.html"):
+                with open(os.path.join(RAIZ, "index.html"), "rb") as f:
+                    self._responder(f.read(), "text/html; charset=utf-8")
+            elif url.path == "/api/servicios":
+                self._json(db.consultar("SELECT id, nombre, tipo_vehiculo, precio, duracion_min FROM servicios WHERE activo ORDER BY tipo_vehiculo, precio"))
+            elif url.path == "/api/horarios":
+                self._json(db.horarios_disponibles(parse_qs(url.query).get("fecha", [""])[0]))
+            elif url.path == "/api/insumos":
+                self._json(db.listar_insumos())
+            elif url.path == "/api/balance":
+                qs = parse_qs(url.query)
+                desde = qs.get("desde", [str(db.consultar("SELECT MIN(fecha) FROM ingresos")[0]["min"]) or "2024-01-01"])[0]
+                hasta = qs.get("hasta", [str(db.consultar("SELECT MAX(fecha) FROM ingresos")[0]["max"]) or "2100-12-31"])[0]
+                self._json(db.balance_economico(desde, hasta))
+            else:
+                self.send_error(404)
+        except ValueError:
+            self._json({"error": "Fecha inválida"}, 400)
+        except Exception:
+            self._json({"error": "Error interno del servidor"}, 500)
 
-## 6. Administrar la base de datos dentro de VS Code
-1. Clic en el ícono **SQLTools** (cilindro) de la barra lateral.
-2. Conexión **AquaWash (PostgreSQL)** > clic en *Connect now* > escriba la contraseña.
-3. Despliegue *aquawash > public > Tables*: verá `clientes`, `vehiculos`, `servicios`, `citas`, `pagos`, `usuarios`.
-   - Clic en el ícono de lupa de una tabla (*Show table records*) para ver sus datos.
-   - Clic en el ícono de tabla para ver su estructura (columnas y claves).
-4. Abra `sql/consultas.sql`, seleccione una consulta y pulse **Ctrl+E, Ctrl+E** para ejecutarla.
-   También puede crear sus propios archivos `.sql` y ejecutarlos igual.
+    def do_POST(self):
+        if self.path == "/api/reservas":
+            try:
+                largo = int(self.headers.get("Content-Length", 0))
+                cita = db.reserva_web(json.loads(self.rfile.read(largo)))
+                self._json({"ok": True, "cita": cita}, 201)
+            except ValueError as e:
+                self._json({"ok": False, "error": str(e) or "Datos inválidos"}, 400)
+            except Exception:
+                self._json({"ok": False, "error": "Error interno del servidor"}, 500)
+        elif self.path == "/api/contacto":
+            try:
+                largo = int(self.headers.get("Content-Length", 0))
+                datos = json.loads(self.rfile.read(largo))
+                db.registrar_contacto(datos.get("nombre", ""), datos.get("telefono", ""), datos.get("email", ""), datos.get("mensaje", ""))
+                self._json({"ok": True, "mensaje": "Gracias por contactarnos."}, 201)
+            except Exception:
+                self._json({"ok": False, "error": "No se pudo enviar el mensaje"}, 500)
+        else:
+            self.send_error(404)
 
-## 7. Ejecutar el programa
-Pulse **F5** > **«AquaWash · 2) Aplicación de escritorio»** (o `python main.py`).
+    def log_message(self, *args):
+        pass
 
-| Usuario  | Contraseña   | Rol      |
-|----------|--------------|----------|
-| admin    | admin123     | ADMIN    |
-| operador | operador123  | OPERADOR |
 
-**Página web:** menú *Archivo > Abrir página web* (http://localhost:8000).
-O ejecute **«AquaWash · Solo servidor web»** desde F5.
-Las reservas web aparecen en la pestaña *Agenda* con origen WEB, y también en SQLTools (consulta 5).
+def iniciar_en_hilo():
+    srv = ThreadingHTTPServer(("0.0.0.0", WEB_PORT), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
 
-## 8. Estructura
-```
-aquawash/
-├── main.py                  # Aplicación de escritorio
-├── setup_db.py              # Crea BD, tablas y datos (--demo)
-├── config.py                # Conexión y parámetros
-├── requirements.txt
-├── docker-compose.yml       # (opcional) PostgreSQL en Docker
-├── aquawash.code-workspace
-├── .vscode/                 # SQLTools, F5 y tareas ya configurados
-├── sql/
-│   ├── consultas.sql        # Consultas de administración
-│   └── datos_demo.sql       # Datos de ejemplo
-├── database/                # schema.sql + db.py (reglas de negocio)
-├── ui/                      # Pantallas Tkinter
-└── web/                     # server.py + index.html
-```
 
-## 9. Problemas frecuentes
-- **«password authentication failed»**: la contraseña de `config.py` no coincide con la de PostgreSQL.
-- **«connection refused»**: el servicio de PostgreSQL no está iniciado (o Docker apagado).
-- **SQLTools pide instalar el driver**: acepte; instala *SQLTools PostgreSQL Driver*.
-- **«No module named tkinter»** (Linux): `sudo apt install python3-tk`.
+if __name__ == "__main__":
+    print(f"Sosa Car Wash web en http://localhost:{WEB_PORT}  (Ctrl+C para detener)")
+    ThreadingHTTPServer(("0.0.0.0", WEB_PORT), Handler).serve_forever()

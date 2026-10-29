@@ -1,6 +1,5 @@
--- AquaWash · Esquema PostgreSQL
+-- Sosa Car Wash · Esquema PostgreSQL
 -- Ejecutar en pgAdmin: clic derecho en la base "aquawash" > Query Tool > pegar > F5
--- (Si no lo hace, la aplicación lo ejecuta sola al iniciar.)
 
 CREATE TABLE IF NOT EXISTS usuarios (
     id      SERIAL PRIMARY KEY,
@@ -58,5 +57,41 @@ CREATE TABLE IF NOT EXISTS pagos (
     fecha   TIMESTAMP DEFAULT NOW()
 );
 
--- Índice de la agenda (lo crea la aplicación; compatible con PostgreSQL 9.3 o superior):
--- CREATE INDEX idx_citas_fecha ON citas (fecha, hora);
+CREATE TABLE IF NOT EXISTS insumos (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    categoria VARCHAR(40) DEFAULT 'GENERAL',
+    cantidad NUMERIC(12,2) NOT NULL DEFAULT 0,
+    unidad VARCHAR(20) NOT NULL DEFAULT 'unidad',
+    costo_unitario NUMERIC(12,2) NOT NULL DEFAULT 0,
+    stock_minimo NUMERIC(12,2) NOT NULL DEFAULT 0,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    actualizado TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ingresos (
+    id SERIAL PRIMARY KEY,
+    fecha DATE NOT NULL,
+    detalle VARCHAR(200) NOT NULL,
+    monto NUMERIC(12,2) NOT NULL CHECK (monto >= 0),
+    categoria VARCHAR(40) DEFAULT 'SERVICIO',
+    creado TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS egresos (
+    id SERIAL PRIMARY KEY,
+    fecha DATE NOT NULL,
+    detalle VARCHAR(200) NOT NULL,
+    monto NUMERIC(12,2) NOT NULL CHECK (monto >= 0),
+    categoria VARCHAR(40) DEFAULT 'OPERATIVO',
+    creado TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS contacto (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(80) NOT NULL,
+    telefono VARCHAR(30),
+    email VARCHAR(100),
+    mensaje TEXT,
+    creado TIMESTAMP DEFAULT NOW()
+);
